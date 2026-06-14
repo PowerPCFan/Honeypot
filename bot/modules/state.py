@@ -32,6 +32,14 @@ class MessageMemory:
             "CREATE INDEX IF NOT EXISTS idx_message_history_user_clean_time "
             "ON message_history (user_id, is_clean, created_at)",
         )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS honeypot_caught_users (
+                user_id INTEGER PRIMARY KEY,
+                caught_at TEXT NOT NULL
+            )
+            """,
+        )
         self._connection.commit()
         self.purge_old_messages()
 
@@ -81,6 +89,23 @@ class MessageMemory:
         )
         self._connection.commit()
         self.purge_old_messages()
+
+    def mark_honeypot_caught(self, user_id: int) -> None:
+        self._connection.execute(
+            """
+            INSERT OR REPLACE INTO honeypot_caught_users (user_id, caught_at)
+            VALUES (?, ?)
+            """,
+            (user_id, datetime.now(tz=UTC).isoformat()),
+        )
+        self._connection.commit()
+
+    def was_honeypot_caught(self, user_id: int) -> bool:
+        cursor = self._connection.execute(
+            "SELECT 1 FROM honeypot_caught_users WHERE user_id = ? LIMIT 1",
+            (user_id,),
+        )
+        return cursor.fetchone() is not None
 
     def purge_old_messages(self) -> None:
         self._connection.execute(

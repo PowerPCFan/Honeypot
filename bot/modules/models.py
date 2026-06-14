@@ -9,10 +9,19 @@ class ModerationAction(Enum):
 
 
 class SpamCategory(Enum):
-    NONE = "none"
-    POSSIBLE = "possible spam"
-    LIKELY = "likely spam"
-    CERTAIN = "100% spam"
+    NONE = "NONE"
+    POSSIBLE = "POSSIBLE"
+    LIKELY = "LIKELY"
+    CERTAIN = "CERTAIN"
+
+    @property
+    def rank(self) -> int:
+        return {
+            SpamCategory.NONE: 0,
+            SpamCategory.POSSIBLE: 1,
+            SpamCategory.LIKELY: 2,
+            SpamCategory.CERTAIN: 3,
+        }[self]
 
 
 @dataclass(frozen=True)

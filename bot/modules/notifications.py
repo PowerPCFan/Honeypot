@@ -1,10 +1,7 @@
-import logging
-
 import discord
 from modules.config import Settings
+from modules.logger import logger
 from modules.models import SpamAssessment, SpamCategory
-
-LOGGER = logging.getLogger("honeypot.notifications")
 
 
 async def send_spam_notification(
@@ -12,11 +9,14 @@ async def send_spam_notification(
     assessment: SpamAssessment,
     settings: Settings,
 ) -> None:
+    if not settings.notifications.enabled:
+        return
+
     channel = (
         message.guild.get_channel(settings.notifications.channel_id) if message.guild else None
     )
     if channel is None or not hasattr(channel, "send"):
-        LOGGER.warning(
+        logger.warning(
             "Notification channel %s is unavailable or cannot send messages",
             settings.notifications.channel_id,
         )
@@ -30,13 +30,13 @@ async def send_spam_notification(
 
     embed = _spam_embed(message, assessment)
     if not embed:
-        LOGGER.warning("Could not build spam alert embed for message %s", message.id)
+        logger.warning("Could not build spam alert embed for message %s", message.id)
         return
 
     allowed_mentions = discord.AllowedMentions(everyone=False, users=True, roles=True)
 
     if isinstance(channel, (discord.ForumChannel, discord.CategoryChannel)):
-        LOGGER.warning(
+        logger.warning(
             "Notification channel %s is not a text-sendable channel",
             settings.notifications.channel_id,
         )
@@ -45,7 +45,7 @@ async def send_spam_notification(
     try:
         await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
     except discord.HTTPException:
-        LOGGER.exception("Failed to send spam notification for message %s", message.id)
+        logger.exception("Failed to send spam notification for message %s", message.id)
         return
 
 
@@ -55,18 +55,21 @@ async def send_honeypot_notification(
     *,
     dm_sent: bool | None,
 ) -> None:
+    if not settings.notifications.enabled:
+        return
+
     channel = (
         message.guild.get_channel(settings.notifications.channel_id) if message.guild else None
     )
     if channel is None or not hasattr(channel, "send"):
-        LOGGER.warning(
+        logger.warning(
             "Notification channel %s is unavailable or cannot send messages",
             settings.notifications.channel_id,
         )
         return
 
     if isinstance(message.channel, (discord.DMChannel, discord.GroupChannel)):
-        LOGGER.warning("Skipping honeypot notification for non-guild message %s", message.id)
+        logger.warning("Skipping honeypot notification for non-guild message %s", message.id)
         return
 
     dm_status = "Pending" if dm_sent is None else "Yes" if dm_sent else "No"
@@ -87,7 +90,7 @@ async def send_honeypot_notification(
     )
 
     if isinstance(channel, (discord.ForumChannel, discord.CategoryChannel)):
-        LOGGER.warning(
+        logger.warning(
             "Notification channel %s is not a text-sendable channel",
             settings.notifications.channel_id,
         )
@@ -96,7 +99,7 @@ async def send_honeypot_notification(
     try:
         await channel.send(embed=embed)
     except discord.HTTPException:
-        LOGGER.exception("Failed to send honeypot notification for message %s", message.id)
+        logger.exception("Failed to send honeypot notification for message %s", message.id)
         return
 
 
@@ -132,7 +135,7 @@ async def dm_before_kick(
 
         await member.send(message)
     except discord.HTTPException:
-        LOGGER.exception("Failed to DM kick notice to member %s (%s)", member, member.id)
+        logger.exception("Failed to DM kick notice to member %s (%s)", member, member.id)
         return False
 
     return True

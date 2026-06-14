@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self
 
-from modules.models import ModerationAction
+from modules.models import ModerationAction, SpamCategory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -76,6 +76,15 @@ def integer(data: dict[str, Any], name: str, default: int) -> int:
         raise RuntimeError(msg) from exc
 
 
+def positive_integer(data: dict[str, Any], name: str, default: int) -> int:
+    value = integer(data, name, default)
+    if value <= 0:
+        msg = f"{name} must be greater than 0"
+        raise RuntimeError(msg)
+
+    return value
+
+
 def mod_action(
     data: dict[str, Any],
     name: str,
@@ -89,6 +98,22 @@ def mod_action(
         choices = ", ".join(action.value for action in ModerationAction)
         msg = f"{name} must be one of: {choices}"
         raise RuntimeError(msg) from exc
+
+
+def spam_category(data: dict[str, Any], name: str, default: SpamCategory) -> SpamCategory:
+    raw_value = data.get(name, default.value)
+    normalized = str(raw_value).strip().lower()
+    for category in SpamCategory:
+        if normalized in {category.name.lower(), category.value.lower()}:
+            return category
+
+    choices = ", ".join(
+        category.value
+        for category in SpamCategory
+        if category is not SpamCategory.NONE
+    )
+    msg = f"{name} must be one of: {choices}"
+    raise RuntimeError(msg)
 
 
 @dataclass(frozen=True)
@@ -113,13 +138,13 @@ class Thresholds:
 @dataclass(frozen=True)
 class HistoryDB:
     path: Path
-    retention: int
+    retention_days: int
 
     @classmethod
     def from_dict(cls, d: dict | None) -> Self:
-        return cls(path=DEFAULT_HISTORY_DB_PATH, retention=90) if not d else cls(
-            path=_history_db_path(opt_str(d, "history_db_path")),
-            retention=integer(d, "history_retention_days", default=90),
+        return cls(path=DEFAULT_HISTORY_DB_PATH, retention_days=90) if not d else cls(
+            path=_history_db_path(opt_str(d, "path")),
+            retention_days=positive_integer(d, "retention_days", default=90),
         )
 
 
@@ -129,7 +154,6 @@ class Honeypot:
     dm: bool
     channel_id: int | None
     action: ModerationAction
-    timeout_seconds: int
 
     @classmethod
     def from_dict(cls, d: dict | None) -> Self:
@@ -138,13 +162,11 @@ class Honeypot:
             dm=False,
             channel_id=None,
             action=ModerationAction.KICK,
-            timeout_seconds=3600,
         ) if d is None else cls(
             enabled=boolean(d, "enabled", default=False),
             dm=boolean(d, "dm", default=False),
             channel_id=_honeypot_channel_id(d),
             action=mod_action(d, "action", ModerationAction.KICK),
-            timeout_seconds=integer(d, "timeout_seconds", default=3600),
         )
 
 
@@ -158,8 +180,34 @@ class Notifications:
     def from_dict(cls, d: dict | None) -> Self:
         return cls(enabled=False, channel_id=0, ping=None) if d is None else cls(
             enabled=boolean(d, "enabled", default=False),
-            channel_id=integer(d, "notification_channel_id", default=0),
-            ping=opt_str(d, "likely_spam_ping"),
+            channel_id=integer(d, "channel_id", default=0),
+            ping=opt_str(d, "ping"),
+        )
+
+
+@dataclass(frozen=True)
+class MessageDeletion:
+    on_detected_spam: bool
+    on_action: bool
+    on_action_min_category: SpamCategory
+    on_action_del_limit: int
+
+    @classmethod
+    def from_dict(cls, d: dict | None) -> Self:
+        return cls(
+            on_detected_spam=False,
+            on_action=False,
+            on_action_min_category=SpamCategory.CERTAIN,
+            on_action_del_limit=50,
+        ) if d is None else cls(
+            on_detected_spam=boolean(d, "on_detected_spam", default=False),
+            on_action=boolean(d, "on_action", default=False),
+            on_action_min_category=spam_category(
+                d,
+                "on_action_min_category",
+                SpamCategory.CERTAIN,
+            ),
+            on_action_del_limit=positive_integer(d, "on_action_del_limit", default=50),
         )
 
 
@@ -171,6 +219,7 @@ class Settings:
     dm_on_action: bool
     action: ModerationAction
 
+    message_deletion: MessageDeletion
     history_db: HistoryDB
     honeypot: Honeypot
     thresholds: Thresholds
@@ -190,6 +239,7 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
         honeypot=      Honeypot.from_dict(d.get("honeypot")),
         thresholds=    Thresholds.from_dict(d.get("thresholds")),
         notifications= Notifications.from_dict(d.get("notifications")),
+        message_deletion=MessageDeletion.from_dict(d.get("message_deletion")),
     )
 
 
