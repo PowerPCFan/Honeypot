@@ -1,0 +1,29 @@
+{
+    "token": "your-bot-token-here",
+    "guild_id": 123456789012345678,
+    "invite_link": "https://discord.gg/example",
+    "dm_on_action": true,
+    "timeout_seconds": 3600,
+    "action": "kick",
+    "history_db": {
+        "path": "history.db",
+        "retention": 90
+    },
+    "honeypot": {
+        "enabled": true,
+        "dm": false,
+        "channel_id": 123456789012345678,
+        "action": "kick",
+        "timeout_seconds": 3600
+    },
+    "thresholds": {
+        "possible": 2,
+        "likely": 5,
+        "certain": 9
+    },
+    "notifications": {
+        "enabled": true,
+        "channel_id": 123456789012345678,
+        "ping": "<@&123456789012345678>"
+    }
+}

@@ -1,3 +1,8 @@
+# This app
+config.json
+*.db
+*.sqlite3
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +221,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AI
+.agents/
+.codex/
+
+# VSCode
+.vscode/
