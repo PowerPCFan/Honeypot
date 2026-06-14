@@ -52,8 +52,10 @@ if not logger.handlers:
     handler.setFormatter(Formatter())
     logger.addHandler(handler)
 
-logger.setLevel(
+log_level = (
     logging.DEBUG
-    if bool(str(os.getenv("DEBUG_LOGS", "false")).lower() in {"1", "true", "yes", "on"})
-    else logging.INFO,
+    if bool(str(os.getenv("DEBUG", "false")).lower() in {"1", "true", "yes", "on"})
+    else logging.INFO
 )
+
+logger.setLevel(log_level)

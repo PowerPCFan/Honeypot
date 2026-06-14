@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 import discord
@@ -37,6 +38,15 @@ class HoneypotBot(discord.Client):
 
         if message.guild.id != self.settings.guild_id:
             return
+
+        msg_nonl = message.content.replace("\n", " ")
+        logger.debug(
+            "Received message in #%s with content '%s' (User: @%s | Message ID: %s)",
+            message.channel,
+            (msg_nonl[:50] + "...") if len(msg_nonl) > 50 else msg_nonl,  # noqa: PLR2004
+            message.author,
+            message.id,
+        )
 
         if (
             self.settings.honeypot.enabled
@@ -229,6 +239,9 @@ class HoneypotBot(discord.Client):
 
 
 def main() -> None:
+    discord.VoiceClient.warn_nacl = False
+    discord.VoiceClient.warn_dave = False
+
     settings = load_settings()
     bot = HoneypotBot(settings)
     bot.run(settings.token)
