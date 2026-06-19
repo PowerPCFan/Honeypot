@@ -1,4 +1,3 @@
-import logging
 from datetime import UTC, datetime, timedelta
 
 import discord
@@ -12,6 +11,9 @@ from modules.notifications import (
 )
 from modules.scoring import assess_message
 from modules.state import MessageMemory
+from modules.utils import env_bool
+
+DRY_RUN = env_bool("DRY_RUN", False)  # noqa: FBT003
 
 
 class HoneypotBot(discord.Client):
@@ -25,12 +27,14 @@ class HoneypotBot(discord.Client):
         )
 
     async def on_ready(self) -> None:
-        logger.info("Logged in as %s (%s)", self.user, self.user.id if self.user else "unknown")
+        logger.info("Logged in as %s", self.user)
         guild = self.get_guild(self.settings.guild_id)
         if guild is None:
             logger.warning("Configured guild %s is not currently available", self.settings.guild_id)
         else:
-            logger.info("Monitoring guild: %s (%s)", guild.name, guild.id)
+            logger.info("Guild: '%s' (ID: %s)", guild.name, guild.id)
+        if DRY_RUN:
+            logger.warning("DRY_RUN is enabled; timeout/kick/ban actions will only be logged")
 
     async def on_message(self, message: discord.Message) -> None:  # noqa: C901, PLR0911
         if message.guild is None:
@@ -76,6 +80,12 @@ class HoneypotBot(discord.Client):
             return
 
         assessment = assess_message(message, self.memory, self.settings)
+        logger.debug(
+            "Message %s (by @%s) was assessed:\n%s",
+            message.id,
+            message.author,
+            assessment,
+        )
         if assessment.category is SpamCategory.NONE:
             self._record_message(message, is_clean=True)
             return
@@ -154,6 +164,16 @@ class HoneypotBot(discord.Client):
         *,
         reason: str,
     ) -> None:
+        if DRY_RUN:
+            logger.warning(
+                "DRY_RUN: would apply %s to %s (%s). Reason: %s",
+                action.value,
+                member,
+                member.id,
+                reason,
+            )
+            return
+
         try:
             if action is ModerationAction.TIMEOUT:
                 until = datetime.now(tz=UTC) + timedelta(seconds=3600)

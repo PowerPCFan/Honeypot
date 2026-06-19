@@ -1,6 +1,7 @@
 import logging
-import os
 from datetime import datetime
+
+from modules.utils import env_bool
 
 ANSI = "\033["
 RESET = f"{ANSI}0m"
@@ -54,7 +55,7 @@ if not logger.handlers:
 
 log_level = (
     logging.DEBUG
-    if bool(str(os.getenv("DEBUG", "false")).lower() in {"1", "true", "yes", "on"})
+    if env_bool("DEBUG", False)  # noqa: FBT003
     else logging.INFO
 )
 

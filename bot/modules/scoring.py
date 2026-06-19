@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import discord
 from modules.config import Settings
+from modules.logger import logger
 from modules.models import SpamAssessment, SpamCategory
 from modules.state import MessageMemory
 
@@ -59,6 +60,12 @@ def assess_message(  # noqa: C901
         factors.append(f"Same message sent in {repeated_channel_count} channels")
 
     profile_score, profile_factors = assess_profile(member)
+    logger.debug(
+        "Profile assessment for @%s: +%d points\nFactors:\n- %s",
+        member,
+        profile_score,
+        "\n- ".join(profile_factors) if profile_factors else "None",
+    )
     score += profile_score
     factors.extend(profile_factors)
 
