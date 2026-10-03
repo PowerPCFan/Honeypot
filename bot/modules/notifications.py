@@ -1,13 +1,22 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import discord
-from modules.config import Settings
-from modules.logger import logger
-from modules.models import SpamAssessment, SpamCategory
+
+from .logger import logger
+from .models import SpamAssessment, SpamCategory
+
+if TYPE_CHECKING:
+    from .config import Settings
 
 
 async def send_spam_notification(
     message: discord.Message,
     assessment: SpamAssessment,
     settings: Settings,
+    *,
+    actions: list[str] | None = None,
 ) -> None:
     if not settings.notifications.enabled:
         return
@@ -28,7 +37,7 @@ async def send_spam_notification(
         else None
     )
 
-    embed = _spam_embed(message, assessment)
+    embed = _spam_embed(message, assessment, actions)
     if not embed:
         logger.warning("Could not build spam alert embed for message %s", message.id)
         return
@@ -54,6 +63,7 @@ async def send_honeypot_notification(
     settings: Settings,
     *,
     dm_sent: bool | None,
+    actions: list[str] | None = None,
 ) -> None:
     if not settings.notifications.enabled:
         return
@@ -73,20 +83,27 @@ async def send_honeypot_notification(
         return
 
     dm_status = "Pending" if dm_sent is None else "Yes" if dm_sent else "No"
-    embed = discord.Embed(
-        title="Honeypot Triggered",
-        color=discord.Color.red(),
-        description=(
-            f"Member: {message.author.mention} (`{message.author.id}`)\n"
-            f"Channel: {message.channel.mention}\n"
-            f"DM sent: **{dm_status}**\n"
-            f"Action: **{settings.honeypot.action.value}**"
-        ),
-    )
-    embed.add_field(
-        name="Message",
-        value=_trim(message.content or "*No text content*"),
-        inline=False,
+
+    embed = (
+        discord.Embed(
+            title="Honeypot Triggered",
+            color=discord.Color.red(),
+            description=(
+                f"Member: {message.author.mention} (`{message.author.id}`)\n"
+                f"Channel: {message.channel.mention}\n"
+                f"DM sent: **{dm_status}**\n"
+                f"Action: **{settings.honeypot.action.value}**"
+            ),
+        )
+        .add_field(
+            name="Message",
+            value=_trim(message.content or "*No text content*"),
+            inline=False,
+        )
+        .add_field(
+            name="Actions Taken",
+            value=("\n".join(f"- {action}" for action in (actions or []))) or "No actions taken",
+        )
     )
 
     if isinstance(channel, (discord.ForumChannel, discord.CategoryChannel)):
@@ -103,32 +120,43 @@ async def send_honeypot_notification(
         return
 
 
-async def dm_before_kick(
+def build_staff_list(staff_role: int, guild: discord.Guild) -> str:
+    staff_role_obj = guild.get_role(staff_role)
+    if not staff_role_obj:
+        return "*Error retrieving staff members*"
+
+    return "\n".join([f"- {member.mention}" for member in staff_role_obj.members])
+
+
+async def dm_before_action(
     member: discord.Member,
     settings: Settings,
     *,
     honeypot: bool = False,
 ) -> bool:
     should_dm = settings.honeypot.dm if honeypot else settings.dm_on_action
-    if not should_dm or settings.invite_link is None:
+    action = settings.honeypot.action if honeypot else settings.action
+
+    if not should_dm or (action.value != "timeout" and settings.invite_link is None):
         return False
 
     try:
-        action = settings.honeypot.action if honeypot else settings.action
         if action.value == "timeout":
             message = (
-                "The server anti-spam bot is temporarily timing out your account. "
-                "If this was a mistake, please contact staff."
+                f"You have been timed out in **{member.guild.name}** by the "
+                "anti-spam bot. If this was a mistake, please contact "
+                f"staff: {build_staff_list(settings.staff_role, member.guild)}"
             )
         elif action.value == "ban":
             message = (
-                "The server anti-spam bot is banning your account. "
-                "If this was a mistake, please contact staff. "
-                f"If staff lift the ban, you can rejoin here:\n{settings.invite_link}"
+                f"You have been banned from **{member.guild.name}** by the "
+                "anti-spam bot. If this was a mistake, please contact "
+                f"staff: {build_staff_list(settings.staff_role, member.guild)}"
+                f"\nIf unbanned, you can rejoin here: {settings.invite_link}"
             )
         else:
             message = (
-                "You were removed from the server by the anti-spam bot. "
+                f"You were kicked from **{member.guild.name}** by the anti-spam bot. "
                 "If this was a mistake, you can rejoin here:\n"
                 f"{settings.invite_link}"
             )
@@ -141,7 +169,11 @@ async def dm_before_kick(
     return True
 
 
-def _spam_embed(message: discord.Message, assessment: SpamAssessment) -> discord.Embed | None:
+def _spam_embed(
+    message: discord.Message,
+    assessment: SpamAssessment,
+    actions: list[str] | None = None,
+) -> discord.Embed | None:
     if isinstance(message.channel, (discord.DMChannel, discord.GroupChannel)):
         return None
 
@@ -175,8 +207,15 @@ def _spam_embed(message: discord.Message, assessment: SpamAssessment) -> discord
         inline=False,
     )
 
+    if actions:
+        embed.add_field(
+            name="Actions Taken",
+            value="\n".join(f"- {action}" for action in actions),
+            inline=False,
+        )
+
     if message.attachments:
-        attachment_urls = "\n".join(attachment.url for attachment in message.attachments[:5])
+        attachment_urls = "\n".join(f"<{attachment.url}>" for attachment in message.attachments[:5])
         embed.add_field(name="Attachments", value=_trim(attachment_urls), inline=False)
 
     if isinstance(message.author, discord.Member):

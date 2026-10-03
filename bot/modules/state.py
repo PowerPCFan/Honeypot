@@ -1,16 +1,21 @@
+from __future__ import annotations
+
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass
 class MessageMemory:
     db_path: Path
     retention_days: int
-    message_channels: dict[tuple[int, str], set[int]] = field(
-        default_factory=lambda: defaultdict(set),
+    message_channels: dict[tuple[int, str], dict[int, datetime]] = field(
+        default_factory=lambda: defaultdict(dict),
     )
 
     def __post_init__(self) -> None:
@@ -40,6 +45,8 @@ class MessageMemory:
             )
             """,
         )
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.commit()
         self.purge_old_messages()
 
@@ -120,7 +127,17 @@ class MessageMemory:
             return 0
 
         key = (user_id, normalized)
-        self.message_channels[key].add(channel_id)
+        now = datetime.now(tz=UTC)
+
+        expired_channels = [
+            ch
+            for ch, ts in self.message_channels[key].items()
+            if (now - ts).total_seconds() >= 60  # noqa: PLR2004
+        ]
+        for ch in expired_channels:
+            del self.message_channels[key][ch]
+
+        self.message_channels[key][channel_id] = now
         return len(self.message_channels[key])
 
     def close(self) -> None:
@@ -128,3 +145,84 @@ class MessageMemory:
 
     def _history_cutoff(self) -> datetime:
         return datetime.now(tz=UTC) - timedelta(days=self.retention_days)
+
+
+class WhitelistedUsers:
+    """Database to hold users that are entirely whitelisted from all detection and actions."""
+
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._connection = sqlite3.connect(self.db_path)
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS whitelist (
+                user_id INTEGER PRIMARY KEY,
+                expires_at INTEGER
+            )
+            """,
+        )
+        self._connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_whitelist_expires_at
+            ON whitelist (expires_at)
+            """,
+        )
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA foreign_keys=ON")
+        self._connection.commit()
+
+    def add_user(self, user_id: int, expires_at: datetime | None = None) -> None:
+        # if self.is_whitelisted(user_id):
+        #     return
+
+        expires_ts = int(expires_at.timestamp()) if expires_at else None
+        self._connection.execute(
+            """
+            INSERT INTO whitelist (user_id, expires_at)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET expires_at = excluded.expires_at
+            """,
+            (user_id, expires_ts),
+        )
+        self._connection.commit()
+
+    def remove_user(self, user_id: int) -> None:
+        self._connection.execute(
+            "DELETE FROM whitelist WHERE user_id = ?",
+            (user_id,),
+        )
+        self._connection.commit()
+
+    def is_whitelisted(self, user_id: int) -> bool:
+        now_ts = int(datetime.now(tz=UTC).timestamp())
+        cursor = self._connection.execute(
+            """
+            SELECT 1 FROM whitelist
+            WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)
+            LIMIT 1
+            """,
+            (user_id, now_ts),
+        )
+        return cursor.fetchone() is not None
+
+    def remove_expired(self) -> None:
+        now_ts = int(datetime.now(tz=UTC).timestamp())
+        self._connection.execute(
+            "DELETE FROM whitelist WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now_ts,),
+        )
+        self._connection.commit()
+
+    def get_all_whitelisted_users(self) -> list[tuple[int, datetime | None]]:
+        cursor = self._connection.execute("SELECT user_id, expires_at FROM whitelist")
+        results = []
+        for user_id, expires_ts in cursor.fetchall():
+            expires_at = (
+                datetime.fromtimestamp(expires_ts, tz=UTC) if expires_ts is not None else None
+            )
+            results.append((user_id, expires_at))
+        return results
+
+    def close(self) -> None:
+        self._connection.close()

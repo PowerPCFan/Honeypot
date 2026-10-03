@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 
-from modules.utils import env_bool
+from .global_vars import DEBUG
 
 ANSI = "\033["
 RESET = f"{ANSI}0m"
@@ -14,26 +16,20 @@ DEBUG_GRAY = f"{ANSI}90m"
 
 class Formatter(logging.Formatter):
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:  # noqa: ARG002, N802
-        return (
-            datetime.fromtimestamp(record.created)
-            .astimezone()
-            .strftime(
-                "%m/%d/%Y %H:%M:%S %Z",
-            )
-        )
+        return datetime.fromtimestamp(record.created).astimezone().strftime("%m/%d/%Y %H:%M:%S %Z")
 
     def colorize(self, levelno: int, level_name: str) -> str:
-        match levelno:
-            case logging.DEBUG:
-                level_name = f"{DEBUG_GRAY}{level_name}{RESET}"
-            case logging.INFO:
-                level_name = f"{GREEN}{level_name}{RESET}"
-            case logging.WARNING:
-                level_name = f"{YELLOW}{level_name}{RESET}"
-            case logging.ERROR:
-                level_name = f"{RED}{level_name}{RESET}"
-            case logging.CRITICAL:
-                level_name = f"{PURPLE}{level_name}{RESET}"
+        color = {
+            logging.DEBUG: DEBUG_GRAY,
+            logging.INFO: GREEN,
+            logging.WARNING: YELLOW,
+            logging.ERROR: RED,
+            logging.CRITICAL: PURPLE,
+        }.get(levelno)
+
+        if color:
+            return f"{color}{level_name}{RESET}"
+
         return level_name
 
     def format(self, record: logging.LogRecord) -> str:
@@ -53,10 +49,4 @@ if not logger.handlers:
     handler.setFormatter(Formatter())
     logger.addHandler(handler)
 
-log_level = (
-    logging.DEBUG
-    if env_bool("DEBUG", False)  # noqa: FBT003
-    else logging.INFO
-)
-
-logger.setLevel(log_level)
+logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)

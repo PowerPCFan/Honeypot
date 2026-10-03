@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
-from modules.models import ModerationAction, SpamCategory
+from .models import ModerationAction, SpamCategory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 SETTINGS_PATH = PROJECT_ROOT / "config.json"
 DEFAULT_HISTORY_DB_PATH = PROJECT_ROOT / "message_history.db"
+DEFAULT_WHITELIST_DB_PATH = PROJECT_ROOT / "whitelist.db"
 
 
 def req_str(data: dict[str, Any], name: str) -> str:
@@ -108,9 +111,7 @@ def spam_category(data: dict[str, Any], name: str, default: SpamCategory) -> Spa
             return category
 
     choices = ", ".join(
-        category.value
-        for category in SpamCategory
-        if category is not SpamCategory.NONE
+        category.value for category in SpamCategory if category is not SpamCategory.NONE
     )
     msg = f"{name} must be one of: {choices}"
     raise RuntimeError(msg)
@@ -123,15 +124,19 @@ class Thresholds:
     certain: int
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> Self:
+    def from_dict(cls, d: dict | None) -> Thresholds:
         p = 2
-        l = 5  # noqa: E741
-        c = 9
+        l = 4  # noqa: E741
+        c = 7
 
-        return cls(possible=p, likely=l, certain=c) if not d else cls(
-            possible=integer(d, "possible", default=p),
-            likely=integer(d, "likely", default=l),
-            certain=integer(d, "certain", default=c),
+        return (
+            cls(possible=p, likely=l, certain=c)
+            if not d
+            else cls(
+                possible=integer(d, "possible", default=p),
+                likely=integer(d, "likely", default=l),
+                certain=integer(d, "certain", default=c),
+            )
         )
 
 
@@ -141,10 +146,29 @@ class HistoryDB:
     retention_days: int
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> Self:
-        return cls(path=DEFAULT_HISTORY_DB_PATH, retention_days=90) if not d else cls(
-            path=_history_db_path(opt_str(d, "path")),
-            retention_days=positive_integer(d, "retention_days", default=90),
+    def from_dict(cls, d: dict | None) -> HistoryDB:
+        return (
+            cls(path=DEFAULT_HISTORY_DB_PATH, retention_days=90)
+            if not d
+            else cls(
+                path=_history_db_path(opt_str(d, "path")),
+                retention_days=positive_integer(d, "retention_days", default=90),
+            )
+        )
+
+
+@dataclass(frozen=True)
+class WhitelistDB:
+    path: Path
+
+    @classmethod
+    def from_dict(cls, d: dict | None) -> WhitelistDB:
+        return (
+            cls(path=DEFAULT_WHITELIST_DB_PATH)
+            if not d
+            else cls(
+                path=_history_db_path(opt_str(d, "path")),
+            )
         )
 
 
@@ -156,17 +180,21 @@ class Honeypot:
     action: ModerationAction
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> Self:
-        return cls(
-            enabled=False,
-            dm=False,
-            channel_id=None,
-            action=ModerationAction.KICK,
-        ) if d is None else cls(
-            enabled=boolean(d, "enabled", default=False),
-            dm=boolean(d, "dm", default=False),
-            channel_id=_honeypot_channel_id(d),
-            action=mod_action(d, "action", ModerationAction.KICK),
+    def from_dict(cls, d: dict | None) -> Honeypot:
+        return (
+            cls(
+                enabled=False,
+                dm=False,
+                channel_id=None,
+                action=ModerationAction.KICK,
+            )
+            if d is None
+            else cls(
+                enabled=boolean(d, "enabled", default=False),
+                dm=boolean(d, "dm", default=False),
+                channel_id=_honeypot_channel_id(d),
+                action=mod_action(d, "action", ModerationAction.KICK),
+            )
         )
 
 
@@ -177,11 +205,15 @@ class Notifications:
     ping: str | None
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> Self:
-        return cls(enabled=False, channel_id=0, ping=None) if d is None else cls(
-            enabled=boolean(d, "enabled", default=False),
-            channel_id=integer(d, "channel_id", default=0),
-            ping=opt_str(d, "ping"),
+    def from_dict(cls, d: dict | None) -> Notifications:
+        return (
+            cls(enabled=False, channel_id=0, ping=None)
+            if d is None
+            else cls(
+                enabled=boolean(d, "enabled", default=False),
+                channel_id=integer(d, "channel_id", default=0),
+                ping=opt_str(d, "ping"),
+            )
         )
 
 
@@ -189,58 +221,86 @@ class Notifications:
 class MessageDeletion:
     on_detected_spam: bool
     on_action: bool
+    on_detected_spam_min_category: SpamCategory
+    on_detected_spam_del_limit: int
     on_action_min_category: SpamCategory
     on_action_del_limit: int
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> Self:
-        return cls(
-            on_detected_spam=False,
-            on_action=False,
-            on_action_min_category=SpamCategory.CERTAIN,
-            on_action_del_limit=50,
-        ) if d is None else cls(
-            on_detected_spam=boolean(d, "on_detected_spam", default=False),
-            on_action=boolean(d, "on_action", default=False),
-            on_action_min_category=spam_category(
-                d,
-                "on_action_min_category",
-                SpamCategory.CERTAIN,
-            ),
-            on_action_del_limit=positive_integer(d, "on_action_del_limit", default=50),
+    def from_dict(cls, d: dict | None) -> MessageDeletion:
+        return (
+            cls(
+                on_detected_spam=False,
+                on_action=False,
+                on_detected_spam_min_category=SpamCategory.LIKELY,
+                on_detected_spam_del_limit=50,
+                on_action_min_category=SpamCategory.CERTAIN,
+                on_action_del_limit=50,
+            )
+            if d is None
+            else cls(
+                on_detected_spam=boolean(d, "on_detected_spam", default=False),
+                on_action=boolean(d, "on_action", default=False),
+                on_detected_spam_min_category=spam_category(
+                    d,
+                    "on_detected_spam_min_category",
+                    SpamCategory.LIKELY,
+                ),
+                on_detected_spam_del_limit=positive_integer(
+                    d,
+                    "on_detected_spam_del_limit",
+                    default=50,
+                ),
+                on_action_min_category=spam_category(
+                    d,
+                    "on_action_min_category",
+                    SpamCategory.CERTAIN,
+                ),
+                on_action_del_limit=positive_integer(d, "on_action_del_limit", default=50),
+            )
         )
 
 
 @dataclass(frozen=True)
 class Settings:
     token: str
+    owner_id: int
     guild_id: int
+    staff_role: int
     invite_link: str | None
     dm_on_action: bool
     action: ModerationAction
 
     message_deletion: MessageDeletion
     history_db: HistoryDB
+    whitelist_db: WhitelistDB
     honeypot: Honeypot
     thresholds: Thresholds
     notifications: Notifications
 
 
-def load_settings(path: Path = SETTINGS_PATH) -> Settings:
-    d = load_json(path)
+def load_settings() -> Settings:
+    d = load_json(SETTINGS_PATH)
 
     return Settings(
-        token=         req_str(d, "token"),
-        guild_id=      req_int(d, "guild_id"),
-        invite_link=   opt_str(d, "invite_link"),
-        dm_on_action=  boolean(d, "dm_on_action", default=True),
-        action=        mod_action(d, "action", ModerationAction.KICK),
-        history_db=    HistoryDB.from_dict(d.get("history_db")),
-        honeypot=      Honeypot.from_dict(d.get("honeypot")),
-        thresholds=    Thresholds.from_dict(d.get("thresholds")),
-        notifications= Notifications.from_dict(d.get("notifications")),
+        token=req_str(d, "token"),
+        owner_id=req_int(d, "owner_id"),
+        guild_id=req_int(d, "guild_id"),
+        staff_role=req_int(d, "staff_role"),
+        invite_link=opt_str(d, "invite_link"),
+        dm_on_action=boolean(d, "dm_on_action", default=True),
+        action=mod_action(d, "action", ModerationAction.KICK),
+        history_db=HistoryDB.from_dict(d.get("history_db")),
+        whitelist_db=WhitelistDB.from_dict(d.get("whitelist_db")),
+        honeypot=Honeypot.from_dict(d.get("honeypot")),
+        thresholds=Thresholds.from_dict(d.get("thresholds")),
+        notifications=Notifications.from_dict(d.get("notifications")),
         message_deletion=MessageDeletion.from_dict(d.get("message_deletion")),
     )
+
+
+def reload_settings() -> Settings:
+    return load_settings()
 
 
 def _honeypot_channel_id(data: dict[str, Any]) -> int | None:
@@ -254,7 +314,7 @@ def _history_db_path(raw_path: str | None) -> Path:
     if raw_path is None:
         return DEFAULT_HISTORY_DB_PATH
 
-    path = Path(raw_path)
+    path = Path(raw_path).expanduser()
     if path.is_absolute():
         return path
 

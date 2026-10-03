@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import re
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import discord
-from modules.config import Settings
-from modules.logger import logger
-from modules.models import SpamAssessment, SpamCategory
-from modules.state import MessageMemory
+
+from .logger import logger
+from .models import SpamAssessment, SpamCategory
+
+if TYPE_CHECKING:
+    from .config import Settings
+    from .state import MessageMemory
 
 DISCORD_CDN_RE = re.compile(
     r"https?://(?:(?:cdn|media)\.discordapp\.(?:com|net)|images-ext-\d+\.discordapp\.net)/attachments/\S+",
@@ -57,7 +63,7 @@ def assess_message(  # noqa: C901
 
     if repeated_channel_count >= 2:  # noqa: PLR2004
         score += 4
-        factors.append(f"Same message sent in {repeated_channel_count} channels")
+        factors.append(f"Same message sent in {repeated_channel_count} channels (within 60 seconds)")  # noqa: E501
 
     profile_score, profile_factors = assess_profile(member)
     logger.debug(
@@ -74,8 +80,8 @@ def assess_message(  # noqa: C901
         score -= 3
         factors.append("Established local message history (-3)")
     elif clean_message_count >= 5:  # noqa: PLR2004
-        score -= 2
-        factors.append("Some local message history (-2)")
+        score -= 1
+        factors.append("Some local message history (-1)")
 
     score = max(score, 0)
 

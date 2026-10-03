@@ -1,7 +1,11 @@
 # This app
 config.json
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.sqlite3
+data*/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
